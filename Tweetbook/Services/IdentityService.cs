@@ -15,6 +15,8 @@ namespace Tweetbook.Services
     {
         private readonly UserManager<IdentityUser> _userManager;
         private readonly JwtSettings _jwtSettings;
+        private readonly TokenValidationParameters _tokenValidationParameters;
+
 
         public IdentityService(UserManager<IdentityUser> userManager, JwtSettings jwtSettings)
         {
@@ -23,13 +25,13 @@ namespace Tweetbook.Services
         }
         public async Task<AuthenticationResult> RegisterAsync(string email, string password)
         {
-            var existingUserr = await _userManager.FindByEmailAsync(email);
+            var existingUser = await _userManager.FindByEmailAsync(email);
 
-            if (existingUserr != null)
+            if (existingUser != null)
             {
                 return  new AuthenticationResult
                 {
-                    Errors = new []{"User with e-mail address already existis"}
+                    Errors = new []{"User with e-mail address already exist"}
                 };
             }
 
@@ -77,7 +79,39 @@ namespace Tweetbook.Services
             return GenerateAuthenticationResultForUser(user);
         }
 
-        private AuthenticationResult GenerateAuthenticationResultForUser(IdentityUser newUser)
+        public async Task<AuthenticationResult> RefreshTokenAsync(string token, string refreshToken)
+        {
+            throw new NotImplementedException();
+        }
+
+        private ClaimsPrincipal GetPrincipalFromToken(string token)
+        {
+            var tokenHandler = new JwtSecurityTokenHandler();
+
+            try
+            {
+                var principal = tokenHandler.ValidateToken(token, _tokenValidationParameters, out var validateToken);
+                if (IsJwtWithValidSecurityAlgorithm(validateToken))
+                {
+                    return null;
+                }
+
+                return principal;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private bool IsJwtWithValidSecurityAlgorithm(SecurityToken validatedToken)
+        {
+            return (validatedToken is JwtSecurityToken jwtSecurityToken) &&
+                   jwtSecurityToken.Header.Alg.Equals(SecurityAlgorithms.HmacSha256,
+                       StringComparison.InvariantCultureIgnoreCase);
+        }
+
+        private AuthenticationResult GenerateAuthenticationResultForUser(IdentityUser user)
         {
             var tokenHandler = new JwtSecurityTokenHandler();
             var key = Encoding.ASCII.GetBytes(_jwtSettings.Secret);
@@ -85,12 +119,12 @@ namespace Tweetbook.Services
             {
                 Subject = new ClaimsIdentity(new[]
                 {
-                    new Claim(JwtRegisteredClaimNames.Sub, newUser.Email),
+                    new Claim(JwtRegisteredClaimNames.Sub, user.Email),
                     new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-                    new Claim(JwtRegisteredClaimNames.Email, newUser.Email),
-                    new Claim("id", newUser.Id)
+                    new Claim(JwtRegisteredClaimNames.Email, user.Email),
+                    new Claim("id", user.Id)
                 }),
-                Expires = DateTime.UtcNow.AddHours(2),
+                Expires = DateTime.UtcNow.Add(_jwtSettings.TokenLifeTime),
                 SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key),
                     SecurityAlgorithms.HmacSha256Signature)
             };
